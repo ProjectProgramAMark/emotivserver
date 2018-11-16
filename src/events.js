@@ -38,7 +38,6 @@ function events(client, threshold, onResult) {
     .then(() => client.subscribe({ streams: ["com", "fac"] }))
     .then(subs => {
       if (!subs[0].com || !subs[1].fac) throw new Error("failed to subscribe");
-
       const current = {
         command: "neutral",
         eyes: "neutral",
@@ -105,7 +104,7 @@ if (require.main === module) {
   const verbose = process.env.LOG_LEVEL || 1;
   const options = { verbose, threshold: 0 };
   const threshold = 0;
-
+  console.log("here I am!");
   const client = new Cortex(options);
 
   client.ready.then(() => client.init()).then(() => {
