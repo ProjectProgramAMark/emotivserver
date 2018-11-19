@@ -8,6 +8,9 @@ var bodyParser = require('body-parser');
 var index = require('./routes/index');
 var users = require('./routes/users');
 require('dotenv').load();
+var net = require('net');
+JsonSocket = require('json-socket');
+
 const Cortex = require('./lib/cortex');
 
 var app = express();
@@ -45,31 +48,17 @@ app.use(function(err, req, res, next) {
   res.render('error');
 });
 
-// making sure all sessions are closed before opening a new one
-// function closePreviousSessions() {
-//   return new Promise(function(resolve, reject) {
-//     console.log("res.length is: ", res.length);
-//   if(res.length > 0) {
-//     for (var i = 0; i < res.length; i++) {
-//       var sessionID = res[i].id;
-//       console.log(res[i].id);
-//       if(res[i].status != "closed") {
-//         console.log("updating session status to closed");
-//         client.updateSession({ session: sessionID, status: "closed" })
-//         .then((res) => {
-//           console.log("successfully closed session: ", res.id);
-//         }, (err) => {
-//           // console.log("error in closing session ", sessionID, ": ", err);
-//           reject("error in closing session", sessionID, ": ", err);
-//         })
-//       }
-//     }
-//     resolve('Successfully closed all sessions');
-//   } else {
-//       resolve('No sessions present');
-//     }
-//   });
-// }
+function creatingTCPConnection() {
+  // here we actually need this NodeJS server to be a client
+  // since it's sending stuff over to the game
+  // var HOST = '127.0.0.1';
+  // var PORT = 6969;
+  // var tcpClient = new net.Socket();
+  // tcpClient.connect(PORT, HOST, function() {
+  //   console.log('CONNECTED TO: ' + HOST + ':' + PORT);
+  //
+  // })
+}
 
 function createSessionAndSubscribe(client) {
   // creating session
@@ -78,18 +67,18 @@ function createSessionAndSubscribe(client) {
     console.log("successfully created session");
     console.log(res);
     // loading profile
-    client.setupProfile({ headset: "INSIGHT-5A688B99", status: "load", profile: "mark" })
+    client.setupProfile({ headset: res.headset.id, status: "load", profile: "chris" })
     .then((res) => {
-    // subscribing to pow data
+    // subscribing to com data
       client.subscribe({ session: res.id, streams: ["com"] })
       .then((res) => {
-        const current = {
+        // comObject contains values needed to send over to game
+        // can add more values to current when needing to add extras
+        const comObject = {
           command: "neutral",
-          eyes: "neutral",
-          brows: "neutral",
-          mouth: "neutral"
+          pow: 0
         };
-        // And here we do mental commands
+        // cleaning up mental command event data
         const columns2obj = headers => cols => {
           const obj = {};
           for (let i = 0; i < cols.length; i++) {
@@ -97,46 +86,59 @@ function createSessionAndSubscribe(client) {
           }
           return obj;
         };
-        console.log("res is:");
-        console.log(res);
-        // const com2obj = columns2obj(res[0].com.cols);
-        // const onCom = ev => {
-        //   const data = com2obj(ev.com);
-        //   console.log("data.act: ", data.act);
-        //   console.log('data.pow: ', data.pow);
-        //   if (data.act !== current.command && data.pow >= threshold) {
-        //     console.log("change in data!");
-        //     console.log("data.act: ", data.act);
-        //     console.log('data.pow: ', data.pow);
-        //     current.command = data.act;
-        //     onResult(Object.assign({}, current));
-        //   }
-        // };
-        const onCom = ev => console.log("com event called!", ev);
+
+        // TODO: put this in own function
+        var HOST = '127.0.0.1';
+        var PORT = 6002;
+        var tcpClient = new JsonSocket(new net.Socket());
+        tcpClient.connect(PORT, HOST);
+        tcpClient.on('connect', function() {
+          console.log('CONNECTED TO: ' + HOST + ':' + PORT);
+          tcpClient.sendMessage({ hi: "hi" }, function(message) {
+            console.log('the result is: ', message);
+          });
+        })
+
+        // TODO: put onCom and com2obj in own function
+        const com2obj = columns2obj(res[0].com.cols);
+        const onCom = ev => {
+          const data = com2obj(ev.com);
+          // defining threshold power data (when should we recognize a change)
+          const threshold = 0.3;
+          console.log("data.act: ", data.act);
+          console.log('data.pow: ', data.pow);
+          // if (data.act !== comObject.command && data.pow >= threshold) {
+          if((data.act == "neutral" && comObject.command != "neutral") || data.pow >= threshold) {
+            console.log("change in data!");
+            console.log("data.act: ", data.act);
+            console.log('data.pow: ', data.pow);
+            comObject.command = data.act;
+            comObject.pow = data.pow;
+            console.log("comObject is: ");
+            console.log(comObject);
+            console.log("sending comObject over tcp");
+            tcpClient.sendMessage(comObject, function(err) {
+              if(err) {
+                console.log('error sending message');
+                console.log(err);
+              } else {
+                console.log('success sending message');
+              }
+            });
+            // onResult(Object.assign({}, current));
+          }
+        };
+
+
+        // const onCom = ev => console.log("com event called!", ev);
         client.on("com", onCom);
         console.log("successfully subscribed to com");
         console.log(res);
-        // const comObject = Object.assign({}, ...res);
-        // console.log(comObject);
-        // console.log("comObject.com: ", comObject.com);
-        // console.log("cols act: ", comObject.com.cols[0]);
-        // console.log("res.com.cols: ", res[0].com.cols);
+
         const onPow = ev => console.log("pow event called!", ev);
         client.on("pow", onPow);
         const onAct = ev => console.log("act event called!", ev);
         client.on("act", onAct);
-        // getting mental command action level sensitivity
-        client.mentalCommandActionLevel({ profile: "chris", status: "get" })
-        .then((res) => {
-          console.log("mental command action level sensitivity result: ");
-          console.log(res);
-        })
-        // getting mental command action level actions
-        client.mentalCommandActiveAction({ profile: "chris", status: "get" })
-        .then((res) => {
-          console.log("mental command action level actions result: ");
-          console.log(res);
-        })
       }, (err) => {
         console.log("error subscribing to com");
         console.log(err);
@@ -176,17 +178,12 @@ app.listen(6001, function(err, res) {
   client.ready.then(function() {
     client.init(auth)
     .then(res => {
-      // console.log("init success response: ", res);
-      // creating new session
       client.querySessions().then((res) => {
-        // console.log("successfully queried sessions: ");
-        // console.log(res);
-        // console.log("closing sessions");
-
         client.querySessions({ query: {status: "activated"} }).then((res) => {
           console.log("sessions that are active: ", res);
           console.log("# of sessions active: ", res.length);
           if(res.length == 1) {
+            // THIS SHOULD NEVER BE CALLED
             console.log("this is ID from querySessions: ", res[0].id);
             var sessionID = res[0].id;
             client.updateSession({ session: sessionID, status: "close" })
@@ -198,18 +195,11 @@ app.listen(6001, function(err, res) {
               console.log("error updating session: ");
               console.log(err);
             })
-            // subscribing to pow data
-            // client.subscribe({ streams: ["pow"], session: session })
-            // .then((res) => {
-            //   console.log("successfully subscribed to pow");
-            //   console.log(res);
-            // }, (err) => {
-            //   console.log("error subscribing to pow");
-            //   console.log(err);
-            // })
           } else if((res.length > 0) && (res.length != 1)) {
+            // THIS SHOULD ALSO NEVER BE CALLED
             throw new Error('Something went wrong subscribing to session');
           } else {
+            // THIS IS WHAT SHOULD BE GETTING CALLED
             createSessionAndSubscribe(client);
           }
         });
